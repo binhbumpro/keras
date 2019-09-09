@@ -7,6 +7,7 @@ from __future__ import print_function
 import warnings
 import numpy as np
 
+from keras.engine.ThreadingBatches import ThreadingBatches
 from .training_utils import is_sequence
 from .training_utils import iter_sequence_infinite
 from .training_utils import should_run_validation
@@ -174,6 +175,18 @@ def fit_generator(model,
                 output_generator = generator
 
         callbacks.model.stop_training = False
+
+        if ThreadingBatches.batch_thread is None:
+            ThreadingBatches.batch_thread = ThreadingBatches()
+
+        if not ThreadingBatches.batch_thread.thread.is_alive():
+            ThreadingBatches.batch_thread.generator = output_generator
+            ThreadingBatches.batch_thread.thread.start()
+        # else:
+        #     ThreadingBatches.batch_thread.restart(output_generator)
+
+
+
         # Construct epoch logs.
         epoch_logs = {}
         while epoch < epochs:
@@ -183,7 +196,7 @@ def fit_generator(model,
             steps_done = 0
             batch_index = 0
             while steps_done < steps_per_epoch:
-                generator_output = next(output_generator)
+                generator_output = ThreadingBatches.batch_thread.thresh_next()
 
                 if not hasattr(generator_output, '__len__'):
                     raise ValueError('Output of generator should be '
@@ -280,7 +293,7 @@ def fit_generator(model,
                     'do_validation': do_validation,
                     'metrics': callback_metrics,
                 })
-
+        # ThreadingBatches.batch_thread.restart(output_generator)
     finally:
         try:
             if enqueuer is not None:
@@ -370,9 +383,9 @@ def evaluate_generator(model, generator,
 
         if verbose == 1:
             progbar = Progbar(target=steps)
-
+            # ThreadingBatches.batch_thread.thread.restart(output_generator)
         while steps_done < steps:
-            generator_output = next(output_generator)
+            generator_output = ThreadingBatches.batch_thread.thresh_next()
             if not hasattr(generator_output, '__len__'):
                 raise ValueError('Output of generator should be a tuple '
                                  '(x, y, sample_weight) '
